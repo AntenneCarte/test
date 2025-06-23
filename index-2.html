@@ -1,0 +1,135 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html>
+<head>
+  <title>Test Carte Géolocalisation</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <style>
+    html, body, #map {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+    }
+    #geolocate-btn {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      width: 30px;
+      height: 30px;
+      background: #fff;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      box-shadow: 0 0 4px rgba(0, 0, 0, 0.2);
+      cursor: pointer;
+      font-size: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1001;
+      transition: background 0.2s;
+    }
+    #geolocate-btn:hover {
+      background: #e0e0e0;
+    }
+    #geolocate-btn:active {
+      background: #d0d0d0;
+    }
+    @media (max-width: 600px) {
+      #geolocate-btn {
+        top: 5px;
+        left: 5px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <button id="geolocate-btn" title="Me géolocaliser">📍</button>
+
+  <script>
+    // Initialiser la carte
+    var map = L.map('map').setView([46.8, 8.2], 8);
+
+    // Ajouter une couche de tuiles OpenStreetMap
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+
+    // Variable pour stocker le marqueur de géolocalisation
+    let userMarker = null;
+
+    // Fonction pour gérer la géolocalisation
+    function geolocateUser() {
+      map.locate({ setView: true, maxZoom: 12 });
+    }
+
+    // Événement quand la position est trouvée
+    map.on('locationfound', function (e) {
+      const latlng = e.latlng;
+      // Supprimer l'ancien marqueur s'il existe
+      if (userMarker) {
+        map.removeLayer(userMarker);
+      }
+      // Ajouter un marqueur à la position de l'utilisateur
+      userMarker = L.circleMarker(latlng, {
+        radius: 8,
+        color: '#3388ff',
+        fillColor: '#3388ff',
+        fillOpacity: 0.8
+      }).addTo(map);
+      userMarker.bindPopup('Vous êtes ici !').openPopup();
+    });
+
+    // Événement en cas d'erreur de géolocalisation
+    map.on('locationerror', function (e) {
+      alert("Impossible de vous géolocaliser : " + e.message);
+    });
+
+    // Ajouter l'écouteur d'événement au bouton
+    document.getElementById('geolocate-btn').addEventListener('click', geolocateUser);
+  </script>
+</body>
+</html>
