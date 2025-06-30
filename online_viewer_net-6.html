@@ -1,0 +1,713 @@
+<?php
+$allowed_referer = 'https://carteantennesuisse.ch';
+if (
+    !isset($_SERVER['HTTP_REFERER']) ||
+    strpos($_SERVER['HTTP_REFERER'], $allowed_referer) !== 0
+) {
+    http_response_code(403);
+    exit('Accès interdit.');
+}
+?>
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Carte antennes sans clusters</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+  <style>
+    html, body, #map {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+    }
+    #controls {
+      position: absolute;
+      top: 5px;
+      right: 5px;
+      background: white;
+      padding: 5px;
+      z-index: 1000;
+      border-radius: 4px;
+      box-shadow: 0 0 4px rgba(0, 0, 0, 0.2);
+      font-family: Arial, sans-serif;
+      font-size: 10px;
+      user-select: none;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      width: auto;
+      min-width: 160px;
+    }
+    #operator-group, #tech-group, #freq-group {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .group-label {
+      font-weight: bold;
+      white-space: nowrap;
+      border-right: 1px solid #ccc;
+      padding-right: 5px;
+      margin-right: 5px;
+      width: 60px;
+      text-align: right;
+    }
+    .button-group, .button-group-second {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 3px;
+    }
+    .freq-buttons {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .filter-button {
+      background: #f0f0f0;
+      border: 1px solid #ccc;
+      border-radius: 3px;
+      padding: 3px 6px;
+      cursor: pointer;
+      font-size: 10px;
+      transition: background 0.2s;
+    }
+    .filter-button.active {
+      background: #007bff;
+      color: white;
+      border-color: #007bff;
+    }
+    .filter-button:hover {
+      background: #e0e0e0;
+    }
+    .filter-button.active:hover {
+      background: #0056b3;
+    }
+    .filter-button.no-antennas {
+      background: #d3d3d3;
+      color: #666;
+      border-color: #b0b0b0;
+      pointer-events: none;
+      cursor: not-allowed;
+    }
+    .filter-button.no-antennas:hover {
+      background: #d3d3d3;
+    }
+    .filter-button.no-antennas.active {
+      background: #b0b0b0;
+      color: #666;
+      border-color: #999;
+      pointer-events: none;
+      cursor: not-allowed;
+    }
+    .filter-button.no-antennas.active:hover {
+      background: #b0b0b0;
+    }
+    #last-update {
+      font-size: 9px;
+      color: gray;
+      white-space: nowrap;
+      font-weight: bold;
+      margin-left: auto;
+    }
+    #operator-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: nowrap;
+    }
+    .leaflet-popup-content {
+      max-width: 120px !important;
+      font-size: 10px;
+    }
+    #info-button {
+      background: #ffffff;
+      border: 1px solid red;
+      border-radius: 3px;
+      width: 18px;
+      height: 18px;
+      font-size: 12px;
+      color: red;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-left: 5px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+      transition: background 0.2s;
+    }
+    #info-button:hover {
+      background: #f0f0f0;
+    }
+    #info-popup {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: white;
+      padding: 20px;
+      border: 1px solid #ccc;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+      z-index: 2000;
+      display: none;
+      max-width: 90%;
+      max-height: 90%;
+      overflow: auto;
+    }
+    #info-popup-content {
+      font-size: 12px;
+    }
+    #info-popup-close {
+      position: absolute;
+      top: 5px;
+      right: 5px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    .highlight-link {
+      font-weight: bold;
+      color: #ff0000;
+      text-decoration: underline;
+    }
+    @media (max-width: 600px) {
+      #controls {
+        top: 3px;
+        left: 0;
+        right: 0;
+        width: 100%;
+        padding: 4px;
+        min-width: unset;
+        box-sizing: border-box;
+      }
+      .filter-button {
+        padding: 2px 5px;
+        font-size: 9px;
+      }
+      #operator-group {
+        flex-wrap: wrap;
+      }
+      #last-update {
+        font-weight: bold;
+        margin-left: 0;
+        margin-top: 3px;
+      }
+      #freq-group {
+        flex-direction: row;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .button-group {
+        flex-wrap: nowrap;
+      }
+      .button-group-second {
+        flex-wrap: nowrap;
+        margin-top: 3px;
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="controls">
+    <div id="operator-group">
+      <span class="group-label">Operator</span>
+      <div class="button-group">
+        <button class="filter-button active" data-type="operator" data-value="Sunrise">Sunrise</button>
+        <button class="filter-button" data-type="operator" data-value="Salt">Salt</button>
+        <button class="filter-button" data-type="operator" data-value="Swisscom">Swisscom</button>
+      </div>
+      <button id="info-button">?</button>
+      <div id="last-update">Last update May 2025</div>
+    </div>
+    <div id="tech-group">
+      <span class="group-label">Technology</span>
+      <div class="button-group">
+        <button class="filter-button" data-type="tech" data-value="3G">3G</button>
+        <button class="filter-button" data-type="tech" data-value="4G">4G</button>
+        <button class="filter-button active" data-type="tech" data-value="5G">5G</button>
+      </div>
+    </div>
+    <div id="freq-group">
+      <span class="group-label">Frequency</span>
+      <div class="freq-buttons">
+        <div class="button-group">
+          <button class="filter-button active" data-type="freq" data-value="all">ALL</button>
+          <button class="filter-button" data-type="freq" data-value="freq1">700 MHz</button>
+          <button class="filter-button" data-type="freq" data-value="freq2">800 MHz</button>
+          <button class="filter-button" data-type="freq" data-value="freq3">900 MHz</button>
+          <button class="filter-button" data-type="freq" data-value="freq4">1400 MHz</button>
+        </div>
+        <div class="button-group-second">
+          <button class="filter-button" data-type="freq" data-value="freq5">1800 MHz</button>
+          <button class="filter-button" data-type="freq" data-value="freq6">2100 MHz</button>
+          <button class="filter-button" data-type="freq" data-value="freq7">2600 MHz</button>
+          <button class="filter-button" data-type="freq" data-value="freq8">3500 MHz</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="info-popup">
+    <span id="info-popup-close">X</span>
+    <div id="info-popup-content"></div>
+  </div>
+
+  <script>
+    var gk_isXlsx = false;
+    var gk_xlsxFileLookup = {};
+    var gk_fileData = {};
+    function filledCell(cell) {
+      return cell !== '' && cell != null;
+    }
+    function loadFileData(filename) {
+      if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+        try {
+          var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+          var firstSheetName = workbook.SheetNames[0];
+          var worksheet = workbook.Sheets[firstSheetName];
+          var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+          var filteredData = jsonData.filter(row => row.some(filledCell));
+          var headerRowIndex = filteredData.findIndex((row, index) =>
+            row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+          );
+          if (headerRowIndex === -1 || headerRowIndex > 25) {
+            headerRowIndex = 0;
+          }
+          var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex));
+          csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+          return csv;
+        } catch (e) {
+          console.error("Error in loadFileData for file:", filename, e);
+          return "";
+        }
+      }
+      return gk_fileData[filename] || "";
+    }
+
+    var map = L.map('map', {
+      zoomControl: false,
+      closePopupOnClick: false
+    }).setView([46.8, 8.2], 8);
+
+    L.control.zoom({ position: 'bottomleft' }).addTo(map);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+
+    const geojsonURLs = {
+      Sunrise: {
+        "3G": '/serve_geojson.php?file=Sunrise_3G.geojson',
+        "4G": '/serve_geojson.php?file=Sunrise_4G.geojson',
+        "5G": '/serve_geojson.php?file=Sunrise_5G.geojson'
+      },
+      Salt: {
+        "3G": '/serve_geojson.php?file=Salt_3G.geojson',
+        "4G": '/serve_geojson.php?file=Salt_4G.geojson',
+        "5G": '/serve_geojson.php?file=Salt_5G.geojson'
+      },
+      Swisscom: {
+        "3G": '/serve_geojson.php?file=Swisscom_3G.geojson',
+        "4G": '/serve_geojson.php?file=Swisscom_4G.geojson',
+        "5G": '/serve_geojson.php?file=Swisscom_5G.geojson'
+      }
+    };
+
+    let currentOperator = "Sunrise";
+    let currentTechnology = "5G";
+    let currentFrequency = "all";
+    const sectorRadius = 500 / 3;
+    const MIN_ZOOM_FOR_SECTORS = 10;
+    const MAX_DISTANCE_FOR_SECTORS = 5000;
+    let frequencyCounts = {
+      freq1: 0, freq2: 0, freq3: 0, freq4: 0,
+      freq5: 0, freq6: 0, freq7: 0, freq8: 0
+    };
+
+    const layers = {
+      freq1: { markers: L.layerGroup(), sectors: L.layerGroup() },
+      freq2: { markers: L.layerGroup(), sectors: L.layerGroup() },
+      freq3: { markers: L.layerGroup(), sectors: L.layerGroup() },
+      freq4: { markers: L.layerGroup(), sectors: L.layerGroup() },
+      freq5: { markers: L.layerGroup(), sectors: L.layerGroup() },
+      freq6: { markers: L.layerGroup(), sectors: L.layerGroup() },
+      freq7: { markers: L.layerGroup(), sectors: L.layerGroup() },
+      freq8: { markers: L.layerGroup(), sectors: L.layerGroup() }
+    };
+
+    function createAzimuthSector(lat, lon, azimuth, angleWidth, radius) {
+      const points = [[lat, lon]];
+      const azimuthRad = azimuth * Math.PI / 180;
+      const angleStart = azimuthRad - angleWidth * Math.PI / 180 / 2;
+      const angleEnd = azimuthRad + angleWidth * Math.PI / 180 / 2;
+      for (let i = 0; i <= 30; i++) {
+        const angle = angleStart + (angleEnd - angleStart) * (i / 30);
+        const dx = radius * Math.sin(angle);
+        const dy = radius * Math.cos(angle);
+        const newLat = lat + dy / 111320;
+        const newLon = lon + dx / (111320 * Math.cos(lat * Math.PI / 180));
+        points.push([newLat, newLon]);
+      }
+      return points;
+    }
+
+    function getFrequencyKey(freq) {
+      if (freq < 791) return "freq1";
+      else if (freq >= 791 && freq < 900) return "freq2";
+      else if (freq >= 900 && freq < 1000) return "freq3";
+      else if (freq < 1500) return "freq4";
+      else if (freq < 1900) return "freq5";
+      else if (freq < 2300) return "freq6";
+      else if (freq < 2700) return "freq7";
+      else return "freq8";
+    }
+
+    const cachedData = {};
+
+    function checkFrequenciesAvailability(operator, technology) {
+      const url = geojsonURLs[operator][technology];
+      if (cachedData[url]) {
+        processFrequencyAvailabilityData(cachedData[url]);
+        return;
+      }
+      fetch(url)
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`HTTP error! Status: ${response.status} for URL: ${url}`);
+          }
+          return response.json();
+        })
+        .then(data => {
+          cachedData[url] = data;
+          processFrequencyAvailabilityData(data);
+        })
+        .catch(err => {
+          console.error("Error in checkFrequenciesAvailability for", operator, technology, "URL:", url, err);
+        });
+    }
+
+    function processFrequencyAvailabilityData(data) {
+      frequencyCounts = {
+        freq1: 0, freq2: 0, freq3: 0, freq4: 0,
+        freq5: 0, freq6: 0, freq7: 0, freq8: 0
+      };
+      data.features.forEach(feature => {
+        if (feature.geometry.type !== "Point") return;
+        const props = feature.properties;
+        const freqStr = props["frequency (MHz)"] || "0 MHz";
+        const freq = parseFloat(freqStr.replace(/[^\d.]/g, '')) || 0;
+        const freqKey = getFrequencyKey(freq);
+        frequencyCounts[freqKey]++;
+      });
+      document.querySelectorAll('.filter-button[data-type="freq"]').forEach(btn => {
+        const freqValue = btn.dataset.value;
+        if (freqValue === "all") {
+          const anyAntennas = Object.values(frequencyCounts).some(count => count > 0);
+          btn.classList.toggle('no-antennas', !anyAntennas);
+        } else {
+          btn.classList.toggle('no-antennas', frequencyCounts[freqValue] === 0);
+        }
+      });
+      if (currentFrequency !== "all" && frequencyCounts[currentFrequency] === 0) {
+        const freqOrder = ['freq1', 'freq2', 'freq3', 'freq4', 'freq5', 'freq6', 'freq7', 'freq8'];
+        let found = false;
+        for (const freq of freqOrder) {
+          if (frequencyCounts[freq] > 0) {
+            currentFrequency = freq;
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          currentFrequency = "all";
+        }
+        updateButtonStyles('freq', currentFrequency);
+        updateMap(true);
+      } else {
+        updateMap(true);
+      }
+    }
+
+    function createAntennaPopupContent(antennaData) {
+      const adaptive = antennaData.props["Adaptive mode"];
+      const adaptiveText = adaptive == "1" ? "Yes" : "No";
+      const pci = antennaData.props["PCI"] || "not available for this antenna";
+      const commissioning = antennaData.props["Commissioning date"] || "Unknown";
+      return `
+        <b>Frequency:</b> ${antennaData.freqStr}<br>
+        <b>Power:</b> Coming soon<br>
+        <b>Adaptive mode:</b> ${adaptiveText}<br>
+        <b>PCI:</b> ${pci}<br>
+        <b>Date:</b> ${commissioning}
+      `;
+    }
+
+    function updateMap(forceRedraw = false) {
+      const currentZoom = map.getZoom();
+      const shouldRedrawSectors = (map.options.lastZoom < MIN_ZOOM_FOR_SECTORS && currentZoom >= MIN_ZOOM_FOR_SECTORS) ||
+                                 (map.options.lastZoom >= MIN_ZOOM_FOR_SECTORS && currentZoom < MIN_ZOOM_FOR_SECTORS);
+      if (!forceRedraw && !shouldRedrawSectors) {
+        return;
+      }
+      if (forceRedraw) {
+        map.closePopup();
+      }
+      for (const key in layers) {
+        map.removeLayer(layers[key].markers);
+        map.removeLayer(layers[key].sectors);
+        layers[key].markers.clearLayers();
+        layers[key].sectors.clearLayers();
+      }
+      const url = geojsonURLs[currentOperator][currentTechnology];
+      if (!cachedData[url]) {
+        console.warn("Data not cached, fetching in updateMap. This might indicate an issue with timing.");
+        fetch(url)
+          .then(response => response.json())
+          .then(data => {
+            cachedData[url] = data;
+            renderMapFeatures(data);
+          })
+          .catch(err => console.error("Error fetching data in updateMap:", err));
+      } else {
+        renderMapFeatures(cachedData[url]);
+      }
+      map.options.lastZoom = currentZoom;
+    }
+
+    function renderMapFeatures(data) {
+      const mapCenter = map.getCenter();
+      const antennasByLocationAndAzimuth = {};
+      const antennasByLocation = {};
+      data.features.forEach(feature => {
+        if (feature.geometry.type !== "Point") return;
+        const [lon, lat] = feature.geometry.coordinates;
+        const props = feature.properties;
+        const freqStr = props["frequency (MHz)"] || "0 MHz";
+        const freq = parseFloat(freqStr.replace(/[^\d.]/g, '')) || 0;
+        const azimut = parseFloat((props["Azimut"] || "0°").replace("°", "")) || 0;
+        const targetLayer = getFrequencyKey(freq);
+        const antenna = {
+          lat: lat,
+          lon: lon,
+          props: props,
+          azimut: azimut,
+          freqStr: freqStr,
+          freq: freq,
+          targetLayer: targetLayer
+        };
+        const keyByAzimuth = `${lat.toFixed(6)},${lon.toFixed(6)},${azimut.toFixed(2)}`;
+        if (!antennasByLocationAndAzimuth[keyByAzimuth]) {
+          antennasByLocationAndAzimuth[keyByAzimuth] = [];
+        }
+        antennasByLocationAndAzimuth[keyByAzimuth].push(antenna);
+        const keyByLocation = `${lat.toFixed(6)},${lon.toFixed(6)}`;
+        if (!antennasByLocation[keyByLocation]) {
+          antennasByLocation[keyByLocation] = [];
+        }
+        antennasByLocation[keyByLocation].push(antenna);
+      });
+      for (const key in antennasByLocation) {
+        const antennasAtThisExactLocation = antennasByLocation[key];
+        const shouldAddMarker = currentFrequency === "all" ||
+                                   antennasAtThisExactLocation.some(ant => ant.targetLayer === currentFrequency);
+        if (shouldAddMarker) {
+          const firstAntenna = antennasAtThisExactLocation[0];
+          const marker = L.circleMarker([firstAntenna.lat, firstAntenna.lon], {
+            radius: 5,
+            color: 'red',
+            fillColor: 'red',
+            fillOpacity: 0.8
+          });
+          if (currentFrequency === "all") {
+            antennasAtThisExactLocation.forEach(ant => layers[ant.targetLayer].markers.addLayer(marker));
+          } else {
+            layers[currentFrequency].markers.addLayer(marker);
+          }
+        }
+      }
+      if (map.getZoom() >= MIN_ZOOM_FOR_SECTORS) {
+        for (const key in antennasByLocationAndAzimuth) {
+          const antennasAtThisSector = antennasByLocationAndAzimuth[key];
+          const firstAntennaForSector = antennasAtThisSector[0];
+          const distance = mapCenter.distanceTo([firstAntennaForSector.lat, firstAntennaForSector.lon]);
+          if (distance > MAX_DISTANCE_FOR_SECTORS) continue;
+          const antennasForPopup = antennasAtThisSector.filter(ant =>
+            currentFrequency === "all" || ant.targetLayer === currentFrequency
+          );
+          if (antennasForPopup.length > 0) {
+            const sector = L.polygon(createAzimuthSector(firstAntennaForSector.lat, firstAntennaForSector.lon, firstAntennaForSector.azimut, 60, sectorRadius), {
+              color: 'blue',
+              fillColor: 'blue',
+              fillOpacity: 0.3,
+              weight: 1
+            });
+            let popupContent = '';
+            antennasForPopup.forEach((ant, index) => {
+              popupContent += createAntennaPopupContent(ant);
+              if (index < antennasForPopup.length - 1) {
+                popupContent += '<hr>';
+              }
+            });
+            sector.bindPopup(popupContent, {autoPan: false});
+            if (currentFrequency === "all") {
+              antennasForPopup.forEach(ant => layers[ant.targetLayer].sectors.addLayer(sector));
+            } else {
+              layers[currentFrequency].sectors.addLayer(sector);
+            }
+          }
+        }
+      }
+      if (currentFrequency === "all") {
+        for (const key in layers) {
+          map.addLayer(layers[key].markers);
+          map.addLayer(layers[key].sectors);
+        }
+      } else {
+        map.addLayer(layers[currentFrequency].markers);
+        map.addLayer(layers[currentFrequency].sectors);
+      }
+    }
+
+    function updateButtonStyles(type, value) {
+      document.querySelectorAll(`.filter-button[data-type="${type}"]`).forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.value === value);
+      });
+    }
+
+    document.querySelectorAll('.filter-button[data-type="operator"]').forEach(btn => {
+      btn.addEventListener('click', function () {
+        currentOperator = this.dataset.value;
+        updateButtonStyles('operator', currentOperator);
+        map.closePopup();
+        checkFrequenciesAvailability(currentOperator, currentTechnology);
+      });
+    });
+
+    document.querySelectorAll('.filter-button[data-type="tech"]').forEach(btn => {
+      btn.addEventListener('click', function () {
+        currentTechnology = this.dataset.value;
+        updateButtonStyles('tech', currentTechnology);
+        map.closePopup();
+        checkFrequenciesAvailability(currentOperator, currentTechnology);
+      });
+    });
+
+    document.querySelectorAll('.filter-button[data-type="freq"]').forEach(btn => {
+      btn.addEventListener('click', function () {
+        currentFrequency = this.dataset.value;
+        updateButtonStyles('freq', currentFrequency);
+        map.closePopup();
+        updateMap(true);
+      });
+    });
+
+    map.on('zoomend', function() {
+      updateMap(true);
+    });
+    map.options.lastZoom = map.getZoom();
+
+    let mapWasDragged = false;
+    map.on('mousedown', function() {
+      mapWasDragged = false;
+    });
+    map.on('dragend', function() {
+      mapWasDragged = true;
+    });
+    map.on('click', function(e) {
+      if (!mapWasDragged && map.getPopup()) {
+        const popupContainer = map.getPopup()._container;
+        if (popupContainer && !popupContainer.contains(e.originalEvent.target)) {
+          map.closePopup();
+        }
+      }
+    });
+
+    checkFrequenciesAvailability(currentOperator, currentTechnology);
+
+    const infoButton = document.getElementById('info-button');
+    const infoPopup = document.getElementById('info-popup');
+    const infoPopupContent = document.getElementById('info-popup-content');
+    const infoPopupClose = document.getElementById('info-popup-close');
+
+    const messages = {
+      fr: {
+        title: "Choisissez les fréquences souhaitées :",
+        lowFreq: "Basses fréquences (700 MHz) : portée jusqu’à 5 km, bonne pénétration dans les bâtiments, mais débit faible.",
+        midFreq: "Moyennes fréquences (2100 MHz) : portée jusqu’à 2 km, équilibre entre portée et débit, adaptées pour un usage mixte intérieur/extérieur.",
+        highFreq: "Hautes fréquences (3500 MHz - 5G) : débit élevé (jusqu’à 2 Gbit/s), portée limitée à 1 km, faible capacité à traverser les murs.",
+        info: "Pour consulter les fréquences, zoomez sur l’antenne et cliquez sur le faisceau qui permet de voir la direction d’émission des ondes.",
+        linkText: "Cliquez-ici pour plus d'infos",
+        linkUrl: "https://carteantennesuisse.ch/informations-antennes-5g-nsa-sa-massive-mimo-latence-largeur-bande/"
+      },
+      de: {
+        title: "Wählen Sie die gewünschten Frequenzen aus:",
+        lowFreq: "Niedrige Frequenzen (700 MHz): Reichweite bis zu 5 km, gute Gebäudedurchdringung, aber niedrige Datenrate.",
+        midFreq: "Mittlere Frequenzen (2100 MHz): Reichweite bis zu 2 km, Ausgleich zwischen Reichweite und Datenrate, geeignet für gemischte Innen-/Außenanwendungen.",
+        highFreq: "Hohe Frequenzen (3500 MHz - 5G): Hohe Datenrate (bis zu 2 Gbit/s), begrenzte Reichweite auf 1 km, geringe Fähigkeit, Wände zu durchdringen.",
+        info: "Um die Frequenzen zu überprüfen, zoomen Sie auf die Antenne und klicken Sie auf den Strahl, um die Richtung der Wellenausstrahlung zu sehen.",
+        linkText: "Klicken Sie hier für weitere Informationen",
+        linkUrl: "https://carteantennesuisse.ch/de/informationen-antennen-5g-nsa-sa-massive-mimo-latenz-bandbreite/"
+      },
+      it: {
+        title: "Scegli le frequenze desiderate:",
+        lowFreq: "Basse frequenze (700 MHz): portata fino a 5 km, buona penetrazione negli edifici, ma bassa velocità di dati.",
+        midFreq: "Frequenze medie (2100 MHz): portata fino a 2 km, equilibrio tra portata e velocità di dati, adatte per uso misto interno/esterno.",
+        highFreq: "Alte frequenze (3500 MHz - 5G): alta velocità di dati (fino a 2 Gbit/s), portata limitata a 1 km, scarsa capacità di attraversare i muri.",
+        info: "Per consultare le frequenze, zoomare sull'antenna e fare clic sul fascio che consente di vedere la direzione di emissione delle onde.",
+        linkText: "Clicca qui per maggiori informazioni",
+        linkUrl: "https://carteantennesuisse.ch/it/informazioni-antenne-5g-nsa-sa-massive-mimo-latenza-larghezza-banda/"
+      },
+      en: {
+        title: "Choose the desired frequencies:",
+        lowFreq: "Low frequencies (700 MHz): range up to 5 km, good building penetration, but low data rate.",
+        midFreq: "Mid frequencies (2100 MHz): range up to 2 km, balance between range and data rate, suitable for mixed indoor/outdoor use.",
+        highFreq: "High frequencies (3500 MHz - 5G): high data rate (up to 2 Gbit/s), limited range to 1 km, low ability to penetrate walls.",
+        info: "To check the frequencies, zoom in on the antenna and click on the beam to see the direction of wave emission.",
+        linkText: "Click here for more information",
+        linkUrl: "https://carteantennesuisse.ch/informations-antennes-5g-nsa-sa-massive-mimo-latence-largeur-bande/"
+      }
+    };
+
+    function getBrowserLanguage() {
+      const lang = navigator.language || navigator.languages[0];
+      if (lang.startsWith('fr')) return 'fr';
+      if (lang.startsWith('de')) return 'de';
+      if (lang.startsWith('it')) return 'it';
+      return 'en';
+    }
+
+    function showInfoPopup() {
+      const lang = getBrowserLanguage();
+      const msg = messages[lang];
+      infoPopupContent.innerHTML = `
+        <h3>${msg.title}</h3>
+        <p><b>Basses fréquences (700 MHz):</b> ${msg.lowFreq.split(': ')[1]}</p>
+        <p><b>Moyennes fréquences (2100 MHz):</b> ${msg.midFreq.split(': ')[1]}</p>
+        <p><b>Hautes fréquences (3500 MHz - 5G):</b> ${msg.highFreq.split(': ')[1]}</p>
+        <p>${msg.info}</p>
+        <p><a href="${msg.linkUrl}" target="_blank" class="highlight-link">${msg.linkText}</a></p>
+      `;
+      infoPopup.style.display = 'block';
+    }
+
+    function hideInfoPopup() {
+      infoPopup.style.display = 'none';
+    }
+
+    infoButton.addEventListener('click', showInfoPopup);
+    infoPopupClose.addEventListener('click', hideInfoPopup);
+
+    document.addEventListener('click', function(event) {
+      if (!infoPopup.contains(event.target) && event.target !== infoButton) {
+        hideInfoPopup();
+      }
+    });
+  </script>
+</body>
+</html>
